@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>LogiMaster Ultimate V4 | Multi-Device</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <style>
+        :root { --primary: #2563eb; --dark: #0f172a; }
+        body { background: #f1f5f9; font-family: 'Segoe UI', sans-serif; overflow: hidden; height: 100vh; touch-action: manipulation; }
+        
+        /* PANTALLA DE BIENVENIDA (DEVICE SELECTOR) */
+        #splash-screen {
+            position: fixed; inset: 0; z-index: 9999;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            color: white; transition: opacity 0.5s;
+        }
+        .device-card {
+            background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 16px; padding: 20px; cursor: pointer; transition: 0.2s;
+            text-align: center; width: 100%; max-width: 140px;
+        }
+        .device-card:hover, .device-card.active { background: var(--primary); transform: scale(1.05); border-color: white; }
+
+        /* LAYOUT GENERAL */
+        #app-container { display: none; height: 100vh; flex-direction: column; }
+        .sidebar { width: 260px; background: #1e293b; color: white; display: none; flex-direction: column; }
+        .main-content { flex: 1; overflow: hidden; position: relative; display: flex; flex-direction: column; }
+        
+        /* RESPONSIVE MODES via JS Classes */
+        body.mode-desktop #app-container { flex-direction: row; }
+        body.mode-desktop .sidebar { display: flex; }
+        body.mode-mobile .bottom-nav { display: flex; }
+        body.mode-mobile .main-content { padding-bottom: 70px; } /* Espacio para navbar */
+
+        /* ESTILO VISUAL DE ESTANTE (CSS ART) */
+        .shelf-graphic {
+            height: 120px; background: #e2e8f0; border-radius: 8px; position: relative;
+            border: 4px solid #475569; display: flex; flex-direction: column; justify-content: space-between; padding: 4px;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.1);
+        }
+        .shelf-level { height: 4px; background: #475569; width: 100%; margin: 15px 0; position: relative; }
+        .shelf-box { 
+            position: absolute; bottom: 4px; background: #3b82f6; border: 1px solid #1d4ed8; 
+            opacity: 0.8; border-radius: 2px;
+        }
+
+        /* 3D CANVAS */
+        #canvas-wrapper { width: 100%; height: 100%; position: relative; background: radial-gradient(circle, #f8fafc, #cbd5e1); touch-action: none; }
+        
+        /* BOTTOM NAV (MOBILE) */
+        .bottom-nav {
+            display: none; position: fixed; bottom: 0; left: 0; right: 0; height: 70px;
+            background: white; border-top: 1px solid #e2e8f0; justify-content: space-around; align-items: center;
+            z-index: 50; padding-bottom: env(safe-area-inset-bottom);
+        }
+        .nav-item { display: flex; flex-direction: column; align-items: center; font-size: 10px; color: #64748b; }
+        .nav-item.active { color: var(--primary); font-weight: bold; }
+        .nav-item i { font-size: 20px; margin-bottom: 4px; }
+
+        /* UTILIDADES */
+        .glass-panel { background: rgba(255,255,255,0.95); backdrop-filter: blur(5px); border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+        .scroll-y { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+        
+        /* PRESETS CHIPS */
+        .chip { font-size: 11px; padding: 4px 8px; background: #eff6ff; color: #2563eb; border-radius: 99px; cursor: pointer; border: 1px solid #bfdbfe; }
+        .chip:hover { background: #2563eb; color: white; }
+    </style>
+</head>
+<body>
+
+    <div id="splash-screen">
+        <div class="mb-8 text-center">
+            <i class="fas fa-cubes text-6xl text-blue-500 mb-4 animate-bounce"></i>
+            <h1 class="text-3xl font-bold">LogiMaster V4</h1>
+            <p class="text-slate-400">Selecciona tu dispositivo para optimizar</p>
+        </div>
+        
+        <div class="grid grid-cols-3 gap-4 px-4 w-full max-w-2xl">
+            <div class="device-card" onclick="startApp('mobile')">
+                <i class="fas fa-mobile-alt text-3xl mb-2"></i>
+                <div class="font-bold">Celular</div>
+            </div>
+            <div class="device-card" onclick="startApp('tablet')">
+                <i class="fas fa-tablet-alt text-3xl mb-2"></i>
+                <div class="font-bold">Tablet</div>
+            </div>
+            <div class="device-card" onclick="startApp('desktop')">
+                <i class="fas fa-desktop text-3xl mb-2"></i>
+                <div class="font-bold">PC / Laptop</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="app-container">
+        
+        <aside class="sidebar">
+            <div class="p-6 text-xl font-bold flex items-center gap-2">
+                <i class="fas fa-box text-blue-400"></i> LogiMaster
+            </div>
+            <nav class="flex-1 px-4 space-y-2">
+                <button onclick="nav('dashboard')" class="w-full text-left p-3 rounded hover:bg-slate-700 flex gap-3 items-center"><i class="fas fa-th-large"></i> Mis Unidades</button>
+                <button onclick="openModal()" class="w-full text-left p-3 rounded bg-blue-600 hover:bg-blue-500 flex gap-3 items-center mt-4 shadow-lg"><i class="fas fa-plus"></i> Crear Nuevo</button>
+            </nav>
+            <div class="p-4 text-xs text-slate-500 text-center">V4.0 Ultimate</div>
+        </aside>
+
+        <main class="main-content bg-slate-100" id="main-view">
+            </main>
+
+        <nav class="bottom-nav">
+            <div class="nav-item" onclick="nav('dashboard')">
+                <i class="fas fa-home"></i> Inicio
+            </div>
+            <div class="nav-item" onclick="openModal()">
+                <div class="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white -mt-5 shadow-lg border-4 border-white">
+                    <i class="fas fa-plus"></i>
+                </div>
+                <span class="mt-1">Crear</span>
+            </div>
+            <div class="nav-item" onclick="alert('Funciones Pro pronto')">
+                <i class="fas fa-cog"></i> Ajustes
+            </div>
+        </nav>
+    </div>
+
+    <div id="modal-create" class="fixed inset-0 bg-black/80 z-[100] hidden flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white rounded-xl w-full max-w-sm p-6 shadow-2xl animate-fade-in">
+            <h3 class="text-xl font-bold mb-4">Nueva Unidad de Carga</h3>
+            
+            <label class="text-xs font-bold text-slate-500">Nombre</label>
+            <input id="in-name" class="w-full p-3 border rounded-lg mb-3" placeholder="Ej: Cami贸n Ruta 1">
+
+            <label class="text-xs font-bold text-slate-500">Tipo & Medidas</label>
+            <select id="in-type" class="w-full p-3 border rounded-lg mb-3" onchange="setTypePresets()">
+                <option value="estante">Estante Bodega</option>
+                <option value="camion">Cami贸n (6m)</option>
+                <option value="mula">Mula (12m)</option>
+                <option value="contenedor">Contenedor 40HC</option>
+            </select>
+
+            <div class="grid grid-cols-3 gap-2 mb-3">
+                <input id="in-w" type="number" class="p-2 border rounded text-center" placeholder="An">
+                <input id="in-h" type="number" class="p-2 border rounded text-center" placeholder="Al">
+                <input id="in-d" type="number" class="p-2 border rounded text-center" placeholder="Fo">
+            </div>
+
+            <div class="mb-4">
+                <label class="text-xs font-bold text-slate-500">Capacidad Max Peso (Kg)</label>
+                <input id="in-weight" type="number" class="w-full p-2 border rounded" value="1000">
+            </div>
+
+            <div class="flex gap-2">
+                <button onclick="closeModal()" class="flex-1 py-3 bg-slate-200 rounded-lg font-bold">Cancelar</button>
+                <button onclick="saveUnit()" class="flex-1 py-3 bg-blue-600 text-white rounded-lg font-bold">Crear</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- ESTADO DEL SISTEMA ---
+        let appMode = 'desktop'; // desktop, tablet, mobile
+        let units = JSON.parse(localStorage.getItem('logi_v4_db')) || [];
+        let activeUnitId = null;
+        
+        // Variables 3D
+        let scene, camera, renderer, controls;
+
+        // --- 1. GESTI脫N DE DISPOSITIVO ---
+        function startApp(mode) {
+            appMode = mode;
+            const body = document.body;
+            const splash = document.getElementById('splash-screen');
+            const app = document.getElementById('app-container');
+
+            // Configurar clases CSS seg煤n dispositivo
+            if (mode === 'mobile') {
+                body.classList.add('mode-mobile');
+            } else if (mode === 'tablet') {
+                body.classList.add('mode-mobile'); // Tablet usa layout similar a movil pero m谩s grande
+            } else {
+                body.classList.add('mode-desktop');
+            }
+
+            // Ocultar Splash, Mostrar App
+            splash.style.opacity = '0';
+            setTimeout(() => {
+                splash.style.display = 'none';
+                app.style.display = 'flex';
+                nav('dashboard');
+            }, 500);
+        }
+
+        // --- 2. NAVEGACI脫N ---
+        function nav(route, param = null) {
+            const container = document.getElementById('main-view');
+            container.innerHTML = '';
+            
+            if (route === 'dashboard') renderDashboard(container);
+            if (route === 'unit') {
+                activeUnitId = param;
+                renderUnitView(container);
+                setTimeout(init3D, 100); // Retardo para asegurar DOM
+            }
+        }
+
+        // --- 3. VISTAS ---
+        
+        // VISTA DASHBOARD (CON GRAFICOS DE ESTANTE)
+        function renderDashboard(container) {
+            let html = `
+                <div class="p-4 md:p-8 h-full scroll-y">
+                    <h2 class="text-2xl font-bold text-slate-800 mb-6">Mis Almacenes</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            `;
+
+            if(units.length === 0) {
+                html += `
+                    <div class="col-span-full text-center py-20 bg-white rounded-xl border-2 border-dashed border-slate-300">
+                        <i class="fas fa-warehouse text-4xl text-slate-300 mb-2"></i>
+                        <p class="text-slate-500">Sin unidades. 隆Crea la primera!</p>
+                        <button onclick="openModal()" class="mt-4 text-blue-600 font-bold">Crear Unidad</button>
+                    </div>
+                `;
+            }
+
+            units.forEach(u => {
+                // C谩lculo simple de % llenado para el gr谩fico CSS
+                const volTotal = u.w * u.h * u.d;
+                const volUsed = u.boxes.reduce((acc,b) => acc + (b.w*b.h*b.d*b.q), 0);
+                const pct = Math.min(100, Math.round((volUsed / volTotal) * 100));
+                
+                // Generar gr谩fico CSS del estante
+                let shelfGraphic = `<div class="shelf-graphic">`;
+                // Simular 3 niveles
+                for(let i=0; i<3; i++) {
+                    shelfGraphic += `<div class="shelf-level">`;
+                    // Poner cajitas aleatorias si hay ocupaci贸n
+                    if (pct > (i*30)) {
+                         shelfGraphic += `<div class="shelf-box" style="left: 10%; width: 20%; height: 25px; background: #ef4444"></div>`;
+                         shelfGraphic += `<div class="shelf-box" style="left: 40%; width: 30%; height: 35px; background: #3b82f6"></div>`;
+                    }
+                    shelfGraphic += `</div>`;
+                }
+                shelfGraphic += `</div>`;
+
+                html += `
+                    <div onclick="nav('unit', ${u.id})" class="bg-white p-4 rounded-xl shadow-sm border border-slate-100 cursor-pointer hover:shadow-lg transition">
+                        ${shelfGraphic}
+                        <div class="mt-4">
+                            <h3 class="font-bold text-lg text-slate-800 truncate">${u.name}</h3>
+                            <div class="flex justify-between text-xs text-slate-500 mt-1">
+                                <span>${u.type.toUpperCase()}</span>
+                                <span>${u.w}x${u.h}x${u.d}</span>
+                            </div>
+                            <div class="mt-3 flex items-center gap-2">
+                                <div class="flex-1 bg-slate-100 rounded-full h-2">
+                                    <div class="bg-${pct>90?'red':'green'}-500 h-2 rounded-full" style="width:${pct}%"></div>
+                                </div>
+                                <span class="text-xs font-bold">${pct}%</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += `</div></div>`;
+            container.innerHTML = html;
+        }
+
+        // VISTA UNIDAD (3D + CONTROLES)
+        function renderUnitView(container) {
+            const u = units.find(x => x.id === activeUnitId);
+            const totalWeight = u.boxes.reduce((acc, b) => acc + (b.weight * b.q), 0);
+            const weightPct = Math.round((totalWeight / u.maxWeight) * 100);
+
+            container.innerHTML = `
+                <div class="flex flex-col h-full relative">
+                    <div class="absolute top-0 left-0 right-0 p-4 z-10 flex justify-between items-start pointer-events-none">
+                        <button onclick="nav('dashboard')" class="bg-white/90 p-2 rounded-full shadow pointer-events-auto text-slate-700">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <div class="glass-panel px-4 py-2 pointer-events-auto">
+                            <h2 class="font-bold text-sm text-slate-800">${u.name}</h2>
+                            <div class="text-xs text-slate-500 flex gap-3">
+                                <span><i class="fas fa-box"></i> ${u.boxes.length} refs</span>
+                                <span class="${weightPct > 100 ? 'text-red-500 font-bold' : ''}">
+                                    <i class="fas fa-weight-hanging"></i> ${totalWeight}/${u.maxWeight}kg
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="h-[55vh] md:h-full w-full bg-slate-200" id="canvas-wrapper"></div>
+
+                    <div class="h-[45vh] md:h-full md:w-[350px] md:absolute md:right-0 md:top-0 bg-white shadow-[0_-5px_20px_rgba(0,0,0,0.1)] md:shadow-none md:border-l z-20 flex flex-col">
+                        
+                        <div class="flex border-b">
+                            <button class="flex-1 p-3 text-sm font-bold text-blue-600 border-b-2 border-blue-600 bg-blue-50">Agregar</button>
+                            <button class="flex-1 p-3 text-sm font-bold text-slate-400" onclick="alert('Usa la lista abajo para borrar')">Lista</button>
+                        </div>
+
+                        <div class="p-4 bg-slate-50 border-b scroll-y flex-1">
+                            <div class="flex gap-2 overflow-x-auto pb-3 mb-2 no-scrollbar">
+                                <span class="chip" onclick="fillBox(30,20,40,2)">馃憻 Zapatos</span>
+                                <span class="chip" onclick="fillBox(60,60,60,15)">馃摵 TV</span>
+                                <span class="chip" onclick="fillBox(120,100,14,25)">馃摝 Pallet</span>
+                                <span class="chip" onclick="fillBox(50,50,50,10)">馃 Gen茅rico</span>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-2 mb-2">
+                                <input id="bx-name" class="col-span-2 p-2 border rounded text-sm" placeholder="Nombre Caja">
+                                <input id="bx-w" type="number" class="p-2 border rounded text-sm" placeholder="Ancho (cm)">
+                                <input id="bx-h" type="number" class="p-2 border rounded text-sm" placeholder="Alto (cm)">
+                                <input id="bx-d" type="number" class="p-2 border rounded text-sm" placeholder="Fondo (cm)">
+                                <input id="bx-kg" type="number" class="p-2 border rounded text-sm" placeholder="Peso (Kg)">
+                            </div>
+                            
+                            <div class="flex gap-2 mb-4">
+                                <input id="bx-q" type="number" value="1" class="w-16 p-2 border rounded text-center font-bold">
+                                <input id="bx-color" type="color" value="#3b82f6" class="w-12 h-10 p-0 border rounded">
+                                <button onclick="addBox()" class="flex-1 bg-slate-800 text-white rounded font-bold hover:bg-black">
+                                    <i class="fas fa-plus"></i> Cargar
+                                </button>
+                            </div>
+
+                            <h4 class="text-xs font-bold text-slate-400 uppercase mb-2">Carga Actual</h4>
+                            <div id="mini-list" class="space-y-2 pb-10">
+                                </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            renderMiniList(u);
+        }
+
+        // --- L脫GICA DE DATOS ---
+        function fillBox(w, h, d, kg) {
+            document.getElementById('bx-w').value = w;
+            document.getElementById('bx-h').value = h;
+            document.getElementById('bx-d').value = d;
+            document.getElementById('bx-kg').value = kg;
+        }
+
+        function addBox() {
+            const u = units.find(x => x.id === activeUnitId);
+            const w = parseFloat(document.getElementById('bx-w').value);
+            const h = parseFloat(document.getElementById('bx-h').value);
+            const d = parseFloat(document.getElementById('bx-d').value);
+            const kg = parseFloat(document.getElementById('bx-kg').value) || 0;
+            const q = parseInt(document.getElementById('bx-q').value);
+            const color = document.getElementById('bx-color').value;
+
+            if (!w || !h || !d || !q) return alert("Faltan medidas");
+            if (w > u.w || h > u.h || d > u.d) return alert("隆No cabe por las medidas!");
+
+            u.boxes.push({ id: Date.now(), w, h, d, kg, q, color, name: document.getElementById('bx-name').value || 'Caja' });
+            saveDB();
+            renderMiniList(u);
+            nav('unit', activeUnitId); // Recargar para actualizar 3D y pesos
+        }
+
+        function deleteBox(boxId) {
+            const u = units.find(x => x.id === activeUnitId);
+            u.boxes = u.boxes.filter(b => b.id !== boxId);
+            saveDB();
+            renderMiniList(u);
+            nav('unit', activeUnitId);
+        }
+
+        function renderMiniList(u) {
+            const list = document.getElementById('mini-list');
+            if(!list) return;
+            list.innerHTML = '';
+            u.boxes.forEach(b => {
+                list.innerHTML += `
+                    <div class="flex justify-between items-center bg-white p-2 border rounded shadow-sm text-sm">
+                        <div class="flex items-center gap-2">
+                            <div class="w-3 h-3 rounded-full" style="background:${b.color}"></div>
+                            <div>
+                                <span class="font-bold">${b.q}x</span> ${b.name} <span class="text-xs text-slate-400">(${b.weight}kg ea)</span>
+                            </div>
+                        </div>
+                        <button onclick="deleteBox(${b.id})" class="text-red-400 p-1"><i class="fas fa-trash"></i></button>
+                    </div>
+                `;
+            });
+        }
+
+        // --- THREE.JS (MOTOR 3D OPTIMIZADO PARA M脫VIL) ---
+        function init3D() {
+            const wrapper = document.getElementById('canvas-wrapper');
+            if(!wrapper) return;
+
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(50, wrapper.clientWidth / wrapper.clientHeight, 1, 5000);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(wrapper.clientWidth, wrapper.clientHeight);
+            renderer.shadowMap.enabled = true;
+            wrapper.innerHTML = ''; // Limpiar
+            wrapper.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            // Ajustar sensibilidad para m贸vil
+            controls.rotateSpeed = appMode === 'mobile' ? 0.7 : 1.0;
+
+            // Luces
+            const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8);
+            scene.add(hemi);
+            const dir = new THREE.DirectionalLight(0xffffff, 0.5);
+            dir.position.set(100, 200, 100);
+            dir.castShadow = true;
+            scene.add(dir);
+
+            drawUnit3D();
+            animate();
+        }
+
+        function drawUnit3D() {
+            const u = units.find(x => x.id === activeUnitId);
+            if(!u) return;
+
+            // 1. DIBUJAR CONTENEDOR (Wireframe + Suelo)
+            const floorGeo = new THREE.PlaneGeometry(u.w, u.d);
+            const floorMat = new THREE.MeshLambertMaterial({ color: 0xcbd5e1, side: THREE.DoubleSide });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.position.y = -u.h / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            const boxGeo = new THREE.BoxGeometry(u.w, u.h, u.d);
+            const edges = new THREE.EdgesGeometry(boxGeo);
+            const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x475569 }));
+            scene.add(line);
+
+            camera.position.set(u.w*1.8, u.h*1.5, u.d*1.8);
+            controls.target.set(0,0,0);
+
+            // 2. ALGORITMO DE ACOMODO (GRAVEDAD)
+            let boxesToDraw = [];
+            // Expandir grupos a cajas individuales
+            u.boxes.forEach(g => {
+                for(let i=0; i<g.q; i++) boxesToDraw.push({...g});
+            });
+            // Ordenar: Grandes abajo (Mayor Alto, luego Area)
+            boxesToDraw.sort((a,b) => b.h - a.h || (b.w*b.d) - (a.w*a.d));
+
+            let cx = -u.w/2, cy = -u.h/2, cz = -u.d/2;
+            let maxH = 0, maxZ = 0;
+
+            boxesToDraw.forEach(b => {
+                // Chequear limites
+                if (cx + b.w > u.w/2) { cx = -u.w/2; cz += maxZ; maxZ = 0; }
+                if (cz + b.d > u.d/2) { cx = -u.w/2; cz = -u.d/2; cy += maxH; maxH = 0; }
+                if (cy + b.h > u.h/2) return; // No cabe en altura
+
+                const geometry = new THREE.BoxGeometry(b.w-1, b.h-1, b.d-1);
+                const material = new THREE.MeshLambertMaterial({ color: b.color });
+                const mesh = new THREE.Mesh(geometry, material);
+                
+                mesh.position.set(cx + b.w/2, cy + b.h/2, cz + b.d/2);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                
+                // Borde negro para definici贸n
+                const edgeGeo = new THREE.EdgesGeometry(geometry);
+                const edgeMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3 });
+                const wire = new THREE.LineSegments(edgeGeo, edgeMat);
+                wire.position.copy(mesh.position);
+
+                scene.add(mesh);
+                scene.add(wire);
+
+                cx += b.w;
+                if(b.h > maxH) maxH = b.h;
+                if(b.d > maxZ) maxZ = b.d;
+            });
+        }
+
+        function animate() {
+            if(!document.getElementById('canvas-wrapper')) return;
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // --- GESTI脫N DE UNIDADES ---
+        function openModal() { document.getElementById('modal-create').classList.remove('hidden'); document.getElementById('modal-create').classList.add('flex'); }
+        function closeModal() { document.getElementById('modal-create').classList.add('hidden'); document.getElementById('modal-create').classList.remove('flex'); }
+
+        function setTypePresets() {
+            const type = document.getElementById('in-type').value;
+            const w = document.getElementById('in-w');
+            const h = document.getElementById('in-h');
+            const d = document.getElementById('in-d');
+            
+            if(type === 'camion') { w.value=245; h.value=250; d.value=650; }
+            if(type === 'contenedor') { w.value=235; h.value=239; d.value=1200; }
+            if(type === 'mula') { w.value=260; h.value=280; d.value=1360; }
+            if(type === 'estante') { w.value=120; h.value=200; d.value=60; }
+        }
+
+        function saveUnit() {
+            const unit = {
+                id: Date.now(),
+                name: document.getElementById('in-name').value || 'Unidad ' + (units.length+1),
+                type: document.getElementById('in-type').value,
+                w: parseFloat(document.getElementById('in-w').value),
+                h: parseFloat(document.getElementById('in-h').value),
+                d: parseFloat(document.getElementById('in-d').value),
+                maxWeight: parseFloat(document.getElementById('in-weight').value),
+                boxes: []
+            };
+            units.push(unit);
+            saveDB();
+            closeModal();
+            nav('dashboard');
+        }
+
+        function saveDB() { localStorage.setItem('logi_v4_db', JSON.stringify(units)); }
+
+        // Inicializar
+        setTypePresets(); // Cargar presets por defecto en el modal
+    </script>
+</body>
+</html>
